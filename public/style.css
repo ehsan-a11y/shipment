@@ -503,6 +503,45 @@ tbody td {
   margin-top: 3px;
 }
 
+.timeline-loading {
+  color: #888;
+  font-size: 0.9rem;
+  padding: 8px 0;
+  animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.timeline-source-label {
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #999;
+  margin-bottom: 14px;
+  padding-bottom: 6px;
+  border-bottom: 1px dashed #e0e0e0;
+}
+
+.timeline-source-label.no-external {
+  color: #bbb;
+  font-weight: 400;
+  text-transform: none;
+  font-size: 0.85rem;
+}
+
+.timeline-source-label a {
+  color: #4fc3f7;
+  text-decoration: none;
+}
+
+.tl-loc {
+  color: #666;
+}
+
 .delete-section {
   margin-top: 24px;
   padding-top: 18px;

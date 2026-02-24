@@ -7,6 +7,7 @@ const PORT = process.env.PORT || 3000;
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
 const GIST_ID = process.env.GIST_ID;
 const GIST_FILENAME = 'initial-db.json';
+const AFTERSHIP_KEY = process.env.AFTERSHIP_KEY || '';
 
 // ---- GitHub Gist DB helpers ----
 function gistRequest(method, body) {
@@ -174,6 +175,52 @@ app.get('/api/stats', async (req, res) => {
       totals: { total: shipments.length, delivered, in_transit, pending }
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ---- GET external tracking from AfterShip ----
+app.get('/api/external-track/:tracking_number', async (req, res) => {
+  if (!AFTERSHIP_KEY) return res.json({ events: [], error: 'No tracking API key configured' });
+
+  const trackingNumber = encodeURIComponent(req.params.tracking_number);
+
+  const options = {
+    hostname: 'api.aftership.com',
+    path: `/v4/trackings?tracking_numbers=${trackingNumber}&fields=checkpoints,tag,expected_delivery`,
+    method: 'GET',
+    headers: {
+      'aftership-api-key': AFTERSHIP_KEY,
+      'Content-Type': 'application/json'
+    }
+  };
+
+  try {
+    const data = await new Promise((resolve, reject) => {
+      const req2 = https.request(options, r => {
+        let raw = '';
+        r.on('data', chunk => raw += chunk);
+        r.on('end', () => resolve(JSON.parse(raw)));
+      });
+      req2.on('error', reject);
+      req2.end();
+    });
+
+    if (data.meta.code !== 200) return res.json({ events: [], error: data.meta.message });
+
+    const trackings = data.data.trackings;
+    if (!trackings || trackings.length === 0) return res.json({ events: [] });
+
+    const tracking = trackings[0];
+    const events = (tracking.checkpoints || []).map(cp => ({
+      date: cp.checkpoint_time || cp.created_at,
+      status: cp.message || cp.tag,
+      location: [cp.city, cp.state, cp.country_name].filter(Boolean).join(', '),
+      tag: cp.tag
+    }));
+
+    res.json({ events, current_status: tracking.tag, slug: tracking.slug });
+  } catch (err) {
+    res.status(500).json({ events: [], error: err.message });
+  }
 });
 
 if (require.main === module) {

@@ -343,12 +343,69 @@ async function trackShipment(query) {
   // Pre-select current status
   document.getElementById('new-status').value = s.status;
 
-  // Render timeline
+  // Show tracking result first, then load external events
+  document.getElementById('track-result').classList.remove('hidden');
+  document.getElementById('update-error').classList.add('hidden');
+  document.getElementById('update-success').classList.add('hidden');
+
+  // Load external tracking events
+  renderTimeline(s.events || [], null, true);
+  loadExternalTracking(s.tracking_number, s.events || []);
+}
+
+async function loadExternalTracking(tracking_number, internalEvents) {
   const timeline = document.getElementById('timeline');
-  if (!s.events || s.events.length === 0) {
-    timeline.innerHTML = '<p style="color:#999;font-size:0.9rem">No tracking events yet.</p>';
-  } else {
-    timeline.innerHTML = s.events.map(ev => {
+  timeline.innerHTML = `<p class="timeline-loading">&#128337; Fetching live tracking data...</p>`;
+
+  try {
+    const res = await fetch(`/api/external-track/${encodeURIComponent(tracking_number)}`);
+    const data = await res.json();
+
+    if (data.events && data.events.length > 0) {
+      renderTimeline(internalEvents, data.events, false);
+    } else {
+      renderTimeline(internalEvents, null, false);
+    }
+  } catch (e) {
+    renderTimeline(internalEvents, null, false);
+  }
+}
+
+function renderTimeline(internalEvents, externalEvents, loading) {
+  const timeline = document.getElementById('timeline');
+
+  const tagColor = tag => {
+    const map = {
+      'Delivered': 'delivered', 'Delivery': 'delivered',
+      'Exception': 'failed', 'Expired': 'failed', 'Failed': 'failed',
+      'Pending': 'pending', 'InfoReceived': 'pending'
+    };
+    return map[tag] || '';
+  };
+
+  let html = '';
+
+  // External real-time events (from AfterShip)
+  if (externalEvents && externalEvents.length > 0) {
+    html += `<div class="timeline-source-label">&#127759; Live Carrier Updates</div>`;
+    html += externalEvents.map(ev => `
+      <div class="timeline-item">
+        <div class="timeline-dot ${tagColor(ev.tag)}"></div>
+        <div class="timeline-status">${ev.status}</div>
+        <div class="timeline-meta">
+          ${ev.location ? '<span class="tl-loc">&#128205; ' + ev.location + '</span> &bull; ' : ''}
+          ${formatDate(ev.date)}
+        </div>
+      </div>
+    `).join('');
+  } else if (!loading) {
+    html += `<div class="timeline-source-label no-external">&#128279; No live carrier data &mdash; <a href="https://parcelsapp.com/en/tracking/${encodeURIComponent(document.getElementById('track-number').textContent)}" target="_blank">View on ParcelsApp</a></div>`;
+  }
+
+  // Internal status history
+  if (internalEvents.length > 0) {
+    html += `<div class="timeline-source-label" style="margin-top:18px">&#128196; Internal Status History</div>`;
+    html += internalEvents.map(ev => {
       const dotClass = ev.status === 'Delivered' ? 'delivered' : ev.status === 'Failed' ? 'failed' : ev.status === 'Pending' ? 'pending' : '';
       return `
         <div class="timeline-item">
@@ -363,9 +420,11 @@ async function trackShipment(query) {
     }).join('');
   }
 
-  document.getElementById('track-result').classList.remove('hidden');
-  document.getElementById('update-error').classList.add('hidden');
-  document.getElementById('update-success').classList.add('hidden');
+  if (!html) {
+    html = '<p style="color:#999;font-size:0.9rem">No tracking events yet.</p>';
+  }
+
+  timeline.innerHTML = html;
 }
 
 document.getElementById('update-status-btn').addEventListener('click', async () => {
