@@ -1,18 +1,30 @@
 // ========== NAVIGATION ==========
 const pages = document.querySelectorAll('.page');
 const navLinks = document.querySelectorAll('.nav-link');
+const mobileNavLinks = document.querySelectorAll('.mobile-nav-link');
+
+function navigateTo(target) {
+  navLinks.forEach(l => l.classList.remove('active'));
+  mobileNavLinks.forEach(l => l.classList.remove('active'));
+  document.querySelectorAll(`[data-page="${target}"]`).forEach(l => l.classList.add('active'));
+  pages.forEach(p => p.classList.remove('active'));
+  document.getElementById('page-' + target).classList.add('active');
+  if (target === 'dashboard') loadDashboard();
+  if (target === 'shipments') loadShipments();
+  if (target === 'track') loadTrackDropdown();
+}
 
 navLinks.forEach(link => {
   link.addEventListener('click', e => {
     e.preventDefault();
-    const target = link.dataset.page;
-    navLinks.forEach(l => l.classList.remove('active'));
-    link.classList.add('active');
-    pages.forEach(p => p.classList.remove('active'));
-    document.getElementById('page-' + target).classList.add('active');
-    if (target === 'dashboard') loadDashboard();
-    if (target === 'shipments') loadShipments();
-    if (target === 'track') loadTrackDropdown();
+    navigateTo(link.dataset.page);
+  });
+});
+
+mobileNavLinks.forEach(link => {
+  link.addEventListener('click', e => {
+    e.preventDefault();
+    navigateTo(link.dataset.page);
   });
 });
 
@@ -289,10 +301,7 @@ document.getElementById('track-dropdown').addEventListener('change', function ()
 });
 
 function goTrack(id) {
-  navLinks.forEach(l => l.classList.remove('active'));
-  document.querySelector('[data-page="track"]').classList.add('active');
-  pages.forEach(p => p.classList.remove('active'));
-  document.getElementById('page-track').classList.add('active');
+  navigateTo('track');
   loadTrackDropdown(id);
   document.getElementById('track-input').value = id;
   trackShipment(id);
