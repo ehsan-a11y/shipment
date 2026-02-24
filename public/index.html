@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Shipment Tracker</title>
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+
+<div class="sidebar">
+  <div class="logo">
+    <span class="logo-icon">&#128666;</span>
+    <span>ShipTrack</span>
+  </div>
+  <nav>
+    <a href="#" class="nav-link active" data-page="dashboard">&#9632; Dashboard</a>
+    <a href="#" class="nav-link" data-page="add">&#43; Add Shipment</a>
+    <a href="#" class="nav-link" data-page="shipments">&#9776; All Shipments</a>
+    <a href="#" class="nav-link" data-page="track">&#128270; Track Shipment</a>
+  </nav>
+</div>
+
+<div class="main">
+
+  <!-- DASHBOARD PAGE -->
+  <div id="page-dashboard" class="page active">
+    <div class="page-header">
+      <h1>Dashboard</h1>
+      <p class="subtitle">Overview of all shipments</p>
+    </div>
+
+    <div class="stats-grid">
+      <div class="stat-card total">
+        <div class="stat-label">Total Shipments</div>
+        <div class="stat-value" id="stat-total">0</div>
+      </div>
+      <div class="stat-card delivered">
+        <div class="stat-label">Delivered</div>
+        <div class="stat-value" id="stat-delivered">0</div>
+      </div>
+      <div class="stat-card transit">
+        <div class="stat-label">In Transit</div>
+        <div class="stat-value" id="stat-transit">0</div>
+      </div>
+      <div class="stat-card pending">
+        <div class="stat-label">Pending</div>
+        <div class="stat-value" id="stat-pending">0</div>
+      </div>
+    </div>
+
+    <div class="charts-grid">
+      <div class="chart-card">
+        <h3>Shipment Status Distribution</h3>
+        <canvas id="statusChart"></canvas>
+      </div>
+      <div class="chart-card">
+        <h3>Shipments by Category</h3>
+        <canvas id="categoryChart"></canvas>
+      </div>
+      <div class="chart-card wide">
+        <h3>Daily Shipments (Last 30 Days)</h3>
+        <canvas id="dailyChart"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- ADD SHIPMENT PAGE -->
+  <div id="page-add" class="page">
+    <div class="page-header">
+      <h1>Add New Shipment</h1>
+      <p class="subtitle">Fill in the details to create a new shipment</p>
+    </div>
+
+    <div class="form-card">
+      <form id="add-form">
+        <div class="form-row">
+          <div class="form-group">
+            <label>Tracking Number *</label>
+            <input type="text" id="tracking_number" placeholder="e.g. TRK-20240001" required />
+          </div>
+          <div class="form-group">
+            <label>Category</label>
+            <select id="category">
+              <option>General</option>
+              <option>Electronics</option>
+              <option>Fragile</option>
+              <option>Perishable</option>
+              <option>Documents</option>
+              <option>Clothing</option>
+              <option>Furniture</option>
+              <option>Automotive</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Sender Name *</label>
+            <input type="text" id="sender_name" placeholder="Full name" required />
+          </div>
+          <div class="form-group">
+            <label>Receiver Name *</label>
+            <input type="text" id="receiver_name" placeholder="Full name" required />
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Origin *</label>
+            <input type="text" id="origin" placeholder="City, Country" required />
+          </div>
+          <div class="form-group">
+            <label>Destination *</label>
+            <input type="text" id="destination" placeholder="City, Country" required />
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>Weight (kg)</label>
+            <input type="number" id="weight" placeholder="e.g. 2.5" step="0.1" min="0" />
+          </div>
+        </div>
+
+        <div id="form-error" class="alert alert-error hidden"></div>
+        <div id="form-success" class="alert alert-success hidden"></div>
+
+        <button type="submit" class="btn btn-primary">Create Shipment</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ALL SHIPMENTS PAGE -->
+  <div id="page-shipments" class="page">
+    <div class="page-header">
+      <h1>All Shipments</h1>
+      <p class="subtitle">View and manage all shipments</p>
+    </div>
+
+    <div class="filters-bar">
+      <input type="text" id="search-input" placeholder="Search tracking #, name, location..." />
+      <select id="filter-status">
+        <option value="All">All Statuses</option>
+        <option>Pending</option>
+        <option>Picked Up</option>
+        <option>In Transit</option>
+        <option>Out for Delivery</option>
+        <option>Delivered</option>
+        <option>Failed</option>
+        <option>Returned</option>
+      </select>
+      <button class="btn btn-secondary" id="refresh-btn">Refresh</button>
+    </div>
+
+    <div class="table-card">
+      <table id="shipments-table">
+        <thead>
+          <tr>
+            <th>Tracking #</th>
+            <th>Sender</th>
+            <th>Receiver</th>
+            <th>Origin</th>
+            <th>Destination</th>
+            <th>Category</th>
+            <th>Status</th>
+            <th>Created</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="shipments-tbody">
+          <tr><td colspan="9" class="empty-state">Loading...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- TRACK SHIPMENT PAGE -->
+  <div id="page-track" class="page">
+    <div class="page-header">
+      <h1>Track Shipment</h1>
+      <p class="subtitle">Enter a tracking number or click a shipment from the list</p>
+    </div>
+
+    <div class="track-search-bar">
+      <select id="track-dropdown">
+        <option value="">-- Select a Tracking Number --</option>
+      </select>
+      <input type="text" id="track-input" placeholder="Or type Shipment ID / Tracking Number..." />
+      <button class="btn btn-primary" id="track-btn">Track</button>
+    </div>
+
+    <div id="track-result" class="hidden">
+      <div class="track-card">
+        <div class="track-header">
+          <div>
+            <div class="track-number" id="track-number"></div>
+            <div class="track-route" id="track-route"></div>
+          </div>
+          <div>
+            <span class="status-badge" id="track-status-badge"></span>
+          </div>
+        </div>
+
+        <div class="track-details-grid">
+          <div><span class="detail-label">Sender</span><span id="td-sender"></span></div>
+          <div><span class="detail-label">Receiver</span><span id="td-receiver"></span></div>
+          <div><span class="detail-label">Category</span><span id="td-category"></span></div>
+          <div><span class="detail-label">Weight</span><span id="td-weight"></span></div>
+        </div>
+
+        <div class="update-status-section">
+          <h3>Update Status</h3>
+          <div class="update-row">
+            <select id="new-status">
+              <option>Pending</option>
+              <option>Picked Up</option>
+              <option>In Transit</option>
+              <option>Out for Delivery</option>
+              <option>Delivered</option>
+              <option>Failed</option>
+              <option>Returned</option>
+            </select>
+            <input type="text" id="new-location" placeholder="Current location" />
+            <input type="text" id="new-notes" placeholder="Notes (optional)" />
+            <button class="btn btn-primary" id="update-status-btn">Update</button>
+          </div>
+          <div id="update-error" class="alert alert-error hidden"></div>
+          <div id="update-success" class="alert alert-success hidden"></div>
+        </div>
+
+        <div class="timeline-section">
+          <h3>Tracking History</h3>
+          <div id="timeline" class="timeline"></div>
+        </div>
+
+        <div class="delete-section">
+          <button class="btn btn-danger" id="delete-btn">Delete Shipment</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="track-not-found" class="hidden">
+      <div class="empty-card">Shipment not found. Check the ID or tracking number.</div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Modal for viewing shipment from table -->
+<div id="modal" class="modal hidden">
+  <div class="modal-overlay" id="modal-overlay"></div>
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2>Shipment Details</h2>
+      <button class="modal-close" id="modal-close">&times;</button>
+    </div>
+    <div class="modal-body" id="modal-body"></div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
