@@ -102,11 +102,11 @@ app.post('/api/shipments', async (req, res) => {
     const shipment = {
       id: db.nextShipmentId++, tracking_number, sender_name, receiver_name,
       origin, destination, weight: weight ? parseFloat(weight) : null,
-      category: category || 'General', status: 'Pending',
+      category: category || 'General', status: 'In Transit',
       created_at: now(), updated_at: now()
     };
     db.shipments.push(shipment);
-    db.events.push({ id: db.nextEventId++, shipment_id: shipment.id, status: 'Pending', location: origin, notes: 'Shipment created', event_time: now() });
+    db.events.push({ id: db.nextEventId++, shipment_id: shipment.id, status: 'In Transit', location: origin, notes: 'Shipment created', event_time: now() });
     await saveDB(db);
     res.status(201).json(shipment);
   } catch (err) { res.status(500).json({ error: err.message }); }
