@@ -114,7 +114,7 @@ nav {
 .stat-card.total  { border-left-color: #4fc3f7; }
 .stat-card.delivered { border-left-color: #66bb6a; }
 .stat-card.transit { border-left-color: #ffa726; }
-.stat-card.pending { border-left-color: #ef5350; }
+.stat-card.returned { border-left-color: #90a4ae; }
 
 .stat-label {
   font-size: 0.82rem;

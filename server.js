@@ -154,7 +154,7 @@ app.get('/api/stats', async (req, res) => {
     const statusMap = {}, catMap = {}, dayMap = {};
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    let delivered = 0, in_transit = 0, pending = 0;
+    let delivered = 0, in_transit = 0, returned = 0;
 
     shipments.forEach(s => {
       statusMap[s.status] = (statusMap[s.status] || 0) + 1;
@@ -165,14 +165,14 @@ app.get('/api/stats', async (req, res) => {
       }
       if (s.status === 'Delivered') delivered++;
       if (s.status === 'In Transit') in_transit++;
-      if (s.status === 'Pending') pending++;
+      if (s.status === 'Returned') returned++;
     });
 
     res.json({
       statusCounts: Object.entries(statusMap).map(([status, count]) => ({ status, count })),
       categoryCounts: Object.entries(catMap).map(([category, count]) => ({ category, count })),
       dailyShipments: Object.entries(dayMap).sort(([a], [b]) => a.localeCompare(b)).map(([date, count]) => ({ date, count })),
-      totals: { total: shipments.length, delivered, in_transit, pending }
+      totals: { total: shipments.length, delivered, in_transit, returned }
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });

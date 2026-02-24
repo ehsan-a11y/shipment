@@ -49,7 +49,7 @@ async function loadDashboard() {
   document.getElementById('stat-total').textContent = data.totals.total || 0;
   document.getElementById('stat-delivered').textContent = data.totals.delivered || 0;
   document.getElementById('stat-transit').textContent = data.totals.in_transit || 0;
-  document.getElementById('stat-pending').textContent = data.totals.pending || 0;
+  document.getElementById('stat-returned').textContent = data.totals.returned || 0;
 
   renderStatusChart(data.statusCounts);
   renderCategoryChart(data.categoryCounts);
