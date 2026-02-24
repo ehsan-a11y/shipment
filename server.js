@@ -1,203 +1,180 @@
 const express = require('express');
-const fs = require('fs');
 const path = require('path');
+const { MongoClient, ObjectId } = require('mongodb');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const DB_FILE = process.env.DB_PATH
-  ? path.join(process.env.DB_PATH, 'db.json')
-  : path.join(__dirname, 'db.json');
+const MONGODB_URI = process.env.MONGODB_URI || '';
 
-// ---- Simple JSON "database" ----
-function loadDB() {
-  if (!fs.existsSync(DB_FILE)) {
-    const empty = { shipments: [], events: [], nextShipmentId: 1, nextEventId: 1 };
-    fs.writeFileSync(DB_FILE, JSON.stringify(empty, null, 2));
-    return empty;
-  }
-  return JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+let db;
+
+async function connectDB() {
+  if (db) return db;
+  const client = new MongoClient(MONGODB_URI);
+  await client.connect();
+  db = client.db('shipment_tracker');
+  return db;
 }
 
-function saveDB(db) {
-  fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
-}
+app.use(express.json());
+app.use(express.static(path.join(__dirname, 'public')));
 
 function now() {
   return new Date().toISOString();
 }
 
-// ---- Middleware ----
-app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
-
 // ---- GET all shipments ----
-app.get('/api/shipments', (req, res) => {
-  const db = loadDB();
-  const { search, status } = req.query;
-  let shipments = db.shipments;
+app.get('/api/shipments', async (req, res) => {
+  try {
+    const database = await connectDB();
+    const { search, status } = req.query;
+    const query = {};
 
-  if (search) {
-    const s = search.toLowerCase();
-    shipments = shipments.filter(sh =>
-      sh.tracking_number.toLowerCase().includes(s) ||
-      sh.sender_name.toLowerCase().includes(s) ||
-      sh.receiver_name.toLowerCase().includes(s) ||
-      sh.origin.toLowerCase().includes(s) ||
-      sh.destination.toLowerCase().includes(s)
-    );
-  }
-  if (status && status !== 'All') {
-    shipments = shipments.filter(sh => sh.status === status);
-  }
+    if (search) {
+      const s = new RegExp(search, 'i');
+      query.$or = [
+        { tracking_number: s }, { sender_name: s },
+        { receiver_name: s }, { origin: s }, { destination: s }
+      ];
+    }
+    if (status && status !== 'All') query.status = status;
 
-  shipments = [...shipments].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-  res.json(shipments);
+    const shipments = await database.collection('shipments')
+      .find(query).sort({ created_at: -1 }).toArray();
+
+    res.json(shipments.map(s => ({ ...s, id: s._id.toString() })));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ---- GET single shipment + events ----
-app.get('/api/shipments/:id', (req, res) => {
-  const db = loadDB();
-  const id = parseInt(req.params.id);
-  const shipment = db.shipments.find(s => s.id === id);
-  if (!shipment) return res.status(404).json({ error: 'Shipment not found' });
+app.get('/api/shipments/:id', async (req, res) => {
+  try {
+    const database = await connectDB();
+    const shipment = await database.collection('shipments').findOne({ _id: new ObjectId(req.params.id) });
+    if (!shipment) return res.status(404).json({ error: 'Shipment not found' });
 
-  const events = db.events
-    .filter(e => e.shipment_id === id)
-    .sort((a, b) => new Date(b.event_time) - new Date(a.event_time));
+    const events = await database.collection('events')
+      .find({ shipment_id: req.params.id }).sort({ event_time: -1 }).toArray();
 
-  res.json({ ...shipment, events });
+    res.json({ ...shipment, id: shipment._id.toString(), events });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ---- POST create shipment ----
-app.post('/api/shipments', (req, res) => {
-  const { tracking_number, sender_name, receiver_name, origin, destination, weight, category } = req.body;
+app.post('/api/shipments', async (req, res) => {
+  try {
+    const { tracking_number, sender_name, receiver_name, origin, destination, weight, category } = req.body;
+    if (!tracking_number || !sender_name || !receiver_name || !origin || !destination) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
 
-  if (!tracking_number || !sender_name || !receiver_name || !origin || !destination) {
-    return res.status(400).json({ error: 'Missing required fields' });
+    const database = await connectDB();
+    const existing = await database.collection('shipments').findOne({ tracking_number });
+    if (existing) return res.status(409).json({ error: 'Tracking number already exists' });
+
+    const shipment = {
+      tracking_number, sender_name, receiver_name, origin, destination,
+      weight: weight ? parseFloat(weight) : null,
+      category: category || 'General',
+      status: 'Pending',
+      created_at: now(),
+      updated_at: now()
+    };
+
+    const result = await database.collection('shipments').insertOne(shipment);
+    const id = result.insertedId.toString();
+
+    await database.collection('events').insertOne({
+      shipment_id: id, status: 'Pending',
+      location: origin, notes: 'Shipment created', event_time: now()
+    });
+
+    res.status(201).json({ ...shipment, id });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
-
-  const db = loadDB();
-
-  if (db.shipments.find(s => s.tracking_number === tracking_number)) {
-    return res.status(409).json({ error: 'Tracking number already exists' });
-  }
-
-  const shipment = {
-    id: db.nextShipmentId++,
-    tracking_number,
-    sender_name,
-    receiver_name,
-    origin,
-    destination,
-    weight: weight ? parseFloat(weight) : null,
-    category: category || 'General',
-    status: 'Pending',
-    created_at: now(),
-    updated_at: now()
-  };
-
-  db.shipments.push(shipment);
-
-  // Initial event
-  db.events.push({
-    id: db.nextEventId++,
-    shipment_id: shipment.id,
-    status: 'Pending',
-    location: origin,
-    notes: 'Shipment created',
-    event_time: now()
-  });
-
-  saveDB(db);
-  res.status(201).json(shipment);
 });
 
 // ---- PATCH update status ----
-app.patch('/api/shipments/:id/status', (req, res) => {
-  const validStatuses = ['Pending', 'Picked Up', 'In Transit', 'Out for Delivery', 'Delivered', 'Failed', 'Returned'];
-  const { status, location, notes } = req.body;
+app.patch('/api/shipments/:id/status', async (req, res) => {
+  try {
+    const validStatuses = ['Pending', 'Picked Up', 'In Transit', 'Out for Delivery', 'Delivered', 'Failed', 'Returned'];
+    const { status, location, notes } = req.body;
+    if (!validStatuses.includes(status)) return res.status(400).json({ error: 'Invalid status' });
 
-  if (!validStatuses.includes(status)) {
-    return res.status(400).json({ error: 'Invalid status' });
+    const database = await connectDB();
+    const result = await database.collection('shipments').updateOne(
+      { _id: new ObjectId(req.params.id) },
+      { $set: { status, updated_at: now() } }
+    );
+    if (result.matchedCount === 0) return res.status(404).json({ error: 'Shipment not found' });
+
+    await database.collection('events').insertOne({
+      shipment_id: req.params.id, status,
+      location: location || '', notes: notes || '', event_time: now()
+    });
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
-
-  const db = loadDB();
-  const id = parseInt(req.params.id);
-  const shipment = db.shipments.find(s => s.id === id);
-  if (!shipment) return res.status(404).json({ error: 'Shipment not found' });
-
-  shipment.status = status;
-  shipment.updated_at = now();
-
-  db.events.push({
-    id: db.nextEventId++,
-    shipment_id: id,
-    status,
-    location: location || '',
-    notes: notes || '',
-    event_time: now()
-  });
-
-  saveDB(db);
-  res.json({ success: true });
 });
 
 // ---- DELETE shipment ----
-app.delete('/api/shipments/:id', (req, res) => {
-  const db = loadDB();
-  const id = parseInt(req.params.id);
-  const idx = db.shipments.findIndex(s => s.id === id);
-  if (idx === -1) return res.status(404).json({ error: 'Shipment not found' });
+app.delete('/api/shipments/:id', async (req, res) => {
+  try {
+    const database = await connectDB();
+    const result = await database.collection('shipments').deleteOne({ _id: new ObjectId(req.params.id) });
+    if (result.deletedCount === 0) return res.status(404).json({ error: 'Shipment not found' });
 
-  db.shipments.splice(idx, 1);
-  db.events = db.events.filter(e => e.shipment_id !== id);
-  saveDB(db);
-  res.json({ success: true });
+    await database.collection('events').deleteMany({ shipment_id: req.params.id });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ---- GET stats ----
-app.get('/api/stats', (req, res) => {
-  const db = loadDB();
-  const shipments = db.shipments;
+app.get('/api/stats', async (req, res) => {
+  try {
+    const database = await connectDB();
+    const shipments = await database.collection('shipments').find({}).toArray();
 
-  // Status counts
-  const statusMap = {};
-  shipments.forEach(s => {
-    statusMap[s.status] = (statusMap[s.status] || 0) + 1;
-  });
-  const statusCounts = Object.entries(statusMap).map(([status, count]) => ({ status, count }));
+    const statusMap = {}, catMap = {}, dayMap = {};
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-  // Category counts
-  const catMap = {};
-  shipments.forEach(s => {
-    catMap[s.category] = (catMap[s.category] || 0) + 1;
-  });
-  const categoryCounts = Object.entries(catMap).map(([category, count]) => ({ category, count }));
+    let delivered = 0, in_transit = 0, pending = 0;
 
-  // Daily shipments (last 30 days)
-  const thirtyDaysAgo = new Date();
-  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-  const dayMap = {};
-  shipments
-    .filter(s => new Date(s.created_at) >= thirtyDaysAgo)
-    .forEach(s => {
-      const date = s.created_at.slice(0, 10);
-      dayMap[date] = (dayMap[date] || 0) + 1;
+    shipments.forEach(s => {
+      statusMap[s.status] = (statusMap[s.status] || 0) + 1;
+      catMap[s.category] = (catMap[s.category] || 0) + 1;
+      if (new Date(s.created_at) >= thirtyDaysAgo) {
+        const date = s.created_at.slice(0, 10);
+        dayMap[date] = (dayMap[date] || 0) + 1;
+      }
+      if (s.status === 'Delivered') delivered++;
+      if (s.status === 'In Transit') in_transit++;
+      if (s.status === 'Pending') pending++;
     });
-  const dailyShipments = Object.entries(dayMap)
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([date, count]) => ({ date, count }));
 
-  const totals = {
-    total: shipments.length,
-    delivered: shipments.filter(s => s.status === 'Delivered').length,
-    in_transit: shipments.filter(s => s.status === 'In Transit').length,
-    pending: shipments.filter(s => s.status === 'Pending').length
-  };
-
-  res.json({ statusCounts, dailyShipments, categoryCounts, totals });
+    res.json({
+      statusCounts: Object.entries(statusMap).map(([status, count]) => ({ status, count })),
+      categoryCounts: Object.entries(catMap).map(([category, count]) => ({ category, count })),
+      dailyShipments: Object.entries(dayMap).sort(([a], [b]) => a.localeCompare(b)).map(([date, count]) => ({ date, count })),
+      totals: { total: shipments.length, delivered, in_transit, pending }
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-app.listen(PORT, () => {
-  console.log(`Shipment Tracker running at http://localhost:${PORT}`);
-});
+if (require.main === module) {
+  app.listen(PORT, () => console.log(`Shipment Tracker running at http://localhost:${PORT}`));
+}
+
+module.exports = app;
